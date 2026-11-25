@@ -106,3 +106,30 @@ describe('Team management', () => {
     expect(empty.teams.length).toBe(1); expect(empty.teams[0]?.name).toBe('My Project');
   });
 });
+import { assignRole, canDeleteTeam, canRemove, normalizeProfile, roleOf, updateProfile } from '@/lib/splitup';
+describe('Profiles and roles', () => {
+  it('anyone can edit their profile; blank name falls back', () => {
+    const p = updateProfile(normalizeProfile(null), { name: 'Jensy', bio: 'Hi' });
+    expect(p.name).toBe('Jensy'); expect(updateProfile(p, { name: '  ' }).name).toBe('You');
+    expect(normalizeProfile({ avatar: 'javascript:x' }).avatar).toBe('');
+  });
+  it('members cannot assign roles or remove people', () => {
+    const t = demoState(now).teams[1]!;
+    expect(roleOf(t, 'You')).toBe('member');
+    expect(assignRole(t, 'You', 'Sana', 'moderator')).toBe(t);
+    expect(canRemove(t, 'You', 'Sana')).toBe(false); expect(canDeleteTeam(t, 'You')).toBe(false);
+  });
+  it('leader assigns roles; handing over leadership demotes to moderator', () => {
+    const t = firstTeam();
+    expect(roleOf(assignRole(t, 'You', 'Aisha', 'moderator'), 'Aisha')).toBe('moderator');
+    const handed = assignRole(t, 'You', 'Meera', 'leader');
+    expect(roleOf(handed, 'Meera')).toBe('leader'); expect(roleOf(handed, 'You')).toBe('moderator');
+  });
+  it('moderators cannot touch the leader or make leaders, and remove members only', () => {
+    const t = assignRole(firstTeam(), 'You', 'Meera', 'leader');
+    expect(assignRole(t, 'You', 'Meera', 'member')).toBe(t);
+    expect(assignRole(t, 'You', 'Aisha', 'leader')).toBe(t);
+    expect(canRemove(t, 'You', 'Meera')).toBe(false); expect(canRemove(t, 'You', 'Aisha')).toBe(true);
+    expect(canRemove(t, 'You', 'Rohan')).toBe(false);
+  });
+});

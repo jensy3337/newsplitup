@@ -1,8 +1,10 @@
 export type Channel = 'team-chat' | 'task-board' | 'contributions' | 'deadlines' | 'peer-feedback';
 export type Task = { id: string; title: string; assignee: string; status: number; due: string };
 export type Message = { author: string; text: string; time: string; isBot: boolean };
-export type Team = { name: string; code: string; deadline: string; members: string[]; tasks: Task[]; msgs: Message[]; fb: Record<string, number> };
-export type AppState = { teams: Team[]; activeTeamIndex: number; activeChannel: Channel };
+export type Team = { name: string; code: string; deadline: string; members: string[]; tasks: Task[]; msgs: Message[]; fb: Record<string, number>; roles?: Record<string, Role> };
+export type Role = 'leader' | 'moderator' | 'member';
+export type Profile = { name: string; avatar: string; bio: string; pronouns: string; status: string };
+export type AppState = { teams: Team[]; activeTeamIndex: number; activeChannel: Channel; profile?: Profile };
 export const channels: Channel[] = ['team-chat', 'task-board', 'contributions', 'deadlines', 'peer-feedback'];
 export const STORAGE_KEY = 'splitup-v1';
 export function dateAfter(days: number, now = new Date()): string {
@@ -25,7 +27,7 @@ export function createTeam(name: string, names: string, now = new Date()): Team 
   const members = [...new Set(['You', ...names.split(',').map(n => n.trim()).filter(Boolean)])];
   const prefix = name.replace(/[^a-zA-Z]/g, '').slice(0, 4).toUpperCase() || 'TEAM';
   const code = `${prefix}-${Math.floor(100 + Math.random() * 900)}`;
-  return { name, code, deadline: dateAfter(10, now), members, tasks: [], msgs: [bot(`Welcome to ${name}! Invite your teammates with code ${code}.`)], fb: {} };
+  return { name, code, deadline: dateAfter(10, now), members, tasks: [], msgs: [bot(`Welcome to ${name}! Invite your teammates with code ${code}.`)], fb: {}, roles: { You: 'leader' } };
 }
 export function demoState(now = new Date()): AppState {
   const team = createTeam('DBMS Mini Project', 'Aisha, Rohan, Meera', now);
@@ -41,8 +43,10 @@ export function demoState(now = new Date()): AppState {
   team.msgs = [bot('Your project is ready. Six tasks, four teammates. Let’s make it a team effort!'), { author: 'Aisha', text: 'ER diagram is done! I’ll pick up the presentation slides next.', time: new Date(now.getTime() - 3600000).toISOString(), isBot: false }, { author: 'Rohan', text: 'SQL schema and login module are ready. Can someone help test them?', time: new Date(now.getTime() - 1800000).toISOString(), isBot: false }];
   const second = createTeam('Marketing Case Study', 'Dev, Sana', now);
   second.code = 'MKTG-731';
+  second.roles = { Dev: 'leader', You: 'member' };
   second.tasks = [{ id: 'm1', title: 'Research the target audience', assignee: 'Dev', status: 0, due: dateAfter(7, now) }];
-  return { teams: [team, second], activeTeamIndex: 0, activeChannel: 'contributions' };
+  team.roles = { You: 'leader', Rohan: 'moderator' };
+  return { teams: [team, second], activeTeamIndex: 0, activeChannel: 'contributions', profile: defaultProfile() };
 }
 export function contributionStats(team: Team) {
   const completed = team.tasks.filter(t => t.status === 2).length;
@@ -75,13 +79,13 @@ export function loadState(storage: Pick<Storage, 'getItem'>, now = new Date()): 
     if (!raw) return demoState(now);
     const value: unknown = JSON.parse(raw);
     if (!validState(value)) return demoState(now);
-    return value;
+    return { ...value, profile: normalizeProfile(value.profile) };
   } catch { return demoState(now); }
 }
 function validState(value: unknown): value is AppState {
   if (!value || typeof value !== 'object') return false;
   const s = value as AppState;
-  return Array.isArray(s.teams) && s.teams.length > 0 && Number.isInteger(s.activeTeamIndex) && s.activeTeamIndex >= 0 && s.activeTeamIndex < s.teams.length && channels.includes(s.activeChannel) && s.teams.every(t => typeof t.name === 'string' && typeof t.code === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.deadline) && Array.isArray(t.members) && t.members.includes('You') && t.members.every(n => typeof n === 'string') && Array.isArray(t.tasks) && t.tasks.every(task => typeof task.id === 'string' && typeof task.title === 'string' && t.members.includes(task.assignee) && [0, 1, 2].includes(task.status) && /^\d{4}-\d{2}-\d{2}$/.test(task.due)) && Array.isArray(t.msgs) && t.msgs.every(m => typeof m.author === 'string' && typeof m.text === 'string' && typeof m.time === 'string' && typeof m.isBot === 'boolean') && !!t.fb && typeof t.fb === 'object' && Object.values(t.fb).every(r => typeof r === 'number' && r >= 1 && r <= 5));
+  return Array.isArray(s.teams) && s.teams.length > 0 && Number.isInteger(s.activeTeamIndex) && s.activeTeamIndex >= 0 && s.activeTeamIndex < s.teams.length && channels.includes(s.activeChannel) && s.teams.every(t => typeof t.name === 'string' && typeof t.code === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.deadline) && Array.isArray(t.members) && t.members.includes('You') && t.members.every(n => typeof n === 'string') && Array.isArray(t.tasks) && t.tasks.every(task => typeof task.id === 'string' && typeof task.title === 'string' && t.members.includes(task.assignee) && [0, 1, 2].includes(task.status) && /^\d{4}-\d{2}-\d{2}$/.test(task.due)) && Array.isArray(t.msgs) && t.msgs.every(m => typeof m.author === 'string' && typeof m.text === 'string' && typeof m.time === 'string' && typeof m.isBot === 'boolean') && !!t.fb && typeof t.fb === 'object' && Object.values(t.fb).every(r => typeof r === 'number' && r >= 1 && r <= 5) && (t.roles === undefined || (typeof t.roles === 'object' && !!t.roles && Object.values(t.roles).every(r => r === 'leader' || r === 'moderator' || r === 'member'))));
 }
 export function saveState(storage: Pick<Storage, 'setItem'>, state: AppState): boolean {
   try { storage.setItem(STORAGE_KEY, JSON.stringify(state)); return true; } catch { return false; }
@@ -98,8 +102,9 @@ export function addMember(team: Team, name: string): Team {
 export function removeMember(team: Team, name: string): Team {
   if (name === 'You' || !team.members.includes(name)) return team;
   const { [name]: _removed, ...fb } = team.fb;
+  const { [name]: _role, ...roles } = team.roles ?? {};
   const moved = team.tasks.filter(t => t.assignee === name).length;
-  return { ...team, members: team.members.filter(n => n !== name), tasks: team.tasks.map(t => t.assignee === name ? { ...t, assignee: 'You' } : t), fb, msgs: [...team.msgs, bot(`${name} was removed from the team.${moved ? ` ${moved} task${moved === 1 ? '' : 's'} moved to You.` : ''}`)] };
+  return { ...team, members: team.members.filter(n => n !== name), tasks: team.tasks.map(t => t.assignee === name ? { ...t, assignee: 'You' } : t), fb, roles, msgs: [...team.msgs, bot(`${name} was removed from the team.${moved ? ` ${moved} task${moved === 1 ? '' : 's'} moved to You.` : ''}`)] };
 }
 export function deleteTask(team: Team, id: string): Team {
   return { ...team, tasks: team.tasks.filter(t => t.id !== id) };
@@ -115,3 +120,41 @@ export function removeTeam(state: AppState, index: number, now = new Date()): Ap
   if (teams.length === 0) return { teams: [createTeam('My Project', '', now)], activeTeamIndex: 0, activeChannel: 'team-chat' };
   return { ...state, teams, activeTeamIndex: Math.min(state.activeTeamIndex > index ? state.activeTeamIndex - 1 : state.activeTeamIndex, teams.length - 1) };
 }
+
+export function defaultProfile(): Profile { return { name: 'You', avatar: '', bio: '', pronouns: '', status: 'Ready to contribute' }; }
+export function normalizeProfile(p: unknown): Profile {
+  const d = defaultProfile();
+  if (!p || typeof p !== 'object') return d;
+  const v = p as Record<string, unknown>;
+  const str = (k: keyof Profile, max: number) => typeof v[k] === 'string' ? (v[k] as string).slice(0, max) : d[k];
+  const avatar = str('avatar', 400000);
+  return { name: str('name', 40).trim() || 'You', avatar: avatar.startsWith('data:image/') ? avatar : '', bio: str('bio', 160), pronouns: str('pronouns', 20), status: str('status', 60) };
+}
+/** Everyone can edit their own profile; blank names fall back to "You". */
+export function updateProfile(p: Profile, changes: Partial<Profile>): Profile { return normalizeProfile({ ...p, ...changes }); }
+export function roleOf(team: Team, name: string): Role {
+  const r = team.roles?.[name];
+  if (r) return r;
+  // teams without a stored leader: You lead them
+  return name === 'You' && !Object.values(team.roles ?? {}).includes('leader') ? 'leader' : 'member';
+}
+export function canManage(team: Team, actor: string): boolean { return roleOf(team, actor) !== 'member'; }
+/** Leaders can give any role (handing over leadership demotes them to moderator). Moderators can only switch members/moderators below leader. */
+export function assignRole(team: Team, actor: string, target: string, role: Role): Team {
+  if (!team.members.includes(target) || actor === target) return team;
+  const a = roleOf(team, actor), t = roleOf(team, target);
+  if (a === 'member') return team;
+  if (a === 'moderator' && (role === 'leader' || t === 'leader')) return team;
+  const roles: Record<string, Role> = {};
+  for (const m of team.members) roles[m] = roleOf(team, m);
+  if (role === 'leader') roles[actor] = 'moderator';
+  roles[target] = role;
+  return { ...team, roles };
+}
+/** Leaders remove anyone; moderators remove members only. */
+export function canRemove(team: Team, actor: string, target: string): boolean {
+  if (actor === target || target === 'You') return false;
+  const a = roleOf(team, actor);
+  return a === 'leader' || (a === 'moderator' && roleOf(team, target) === 'member');
+}
+export function canDeleteTeam(team: Team, actor: string): boolean { return roleOf(team, actor) === 'leader'; }
