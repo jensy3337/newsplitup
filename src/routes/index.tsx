@@ -1,9 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowRight, BarChart3, CalendarDays, Check, CheckCheck, ChevronDown, CircleHelp, ClipboardList, Copy, Hash, LockKeyhole, MessageSquare, Plus, Send, ShieldCheck, Sparkles, Split, Star, Target, TriangleAlert, Users } from 'lucide-react';
+import { ArrowRight, BarChart3, CalendarDays, Check, CheckCheck, CircleHelp, ClipboardList, Copy, Hash, LockKeyhole, MessageSquare, Plus, Send, ShieldCheck, Sparkles, Split, Star, Target, Trash2, LogOut, Settings, UserMinus, UserPlus, X, TriangleAlert, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { advanceTask, bot, channels, commandTask, contributionStats, createTeam, dateAfter, daysUntil, deadlineTone, demoState, loadState, saveState, type AppState, type Channel, type Team } from '@/lib/splitup';
+import { advanceTask, bot, channels, commandTask, contributionStats, createTeam, dateAfter, daysUntil, deadlineTone, demoState, loadState, saveState, addMember, deleteTask, reassignTask, removeMember, removeTeam, renameTeam, type AppState, type Channel, type Team } from '@/lib/splitup';
 
 export const Route = createFileRoute('/')({
   head: () => ({ meta: [
@@ -28,6 +28,8 @@ function Index() {
   const [mode, setMode] = useState<'create' | 'join'>('create');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [settings, setSettings] = useState(false);
+  const [confirm, setConfirm] = useState<null | 'leave' | 'delete' | { member: string }>(null);
   useEffect(() => {
     try { setState(loadState(window.localStorage)); } catch { setState(demoState()); setStorageBlocked(true); }
   }, []);
@@ -59,6 +61,24 @@ function Index() {
     }
     setError(''); setModal(false);
   }
+  function closeTeam(kind: 'leave' | 'delete') {
+    if (!state || !team) return;
+    const name = team.name;
+    setState(removeTeam(state, state.activeTeamIndex));
+    setSettings(false); setConfirm(null);
+    setNotice(kind === 'leave' ? `You left ${name}` : `${name} was deleted`);
+  }
+  function confirmAction() {
+    if (!confirm) return;
+    if (typeof confirm === 'object') { const who = confirm.member; updateTeam(t => removeMember(t, who)); setNotice(`${who} was removed`); setConfirm(null); return; }
+    closeTeam(confirm);
+  }
+  function addPerson(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const form = event.currentTarget; const name = String(new FormData(form).get('person') ?? '').trim();
+    if (!name || !team) return;
+    if (team.members.some(n => n.toLowerCase() === name.toLowerCase())) { setNotice(`${name} is already on the team`); return; }
+    updateTeam(t => addMember(t, name)); form.reset();
+  }
   async function copyCode() {
     if (!team) return;
     try { await navigator.clipboard.writeText(team.code); setNotice('Invite code copied'); } catch { setNotice(`Invite code: ${team.code}`); }
@@ -73,9 +93,9 @@ function Index() {
       <div className="rail-bottom"><Split size={21} aria-hidden="true" /></div>
     </nav>
     <aside className="channel-sidebar">
-      <div className="team-heading"><div><strong>{team?.name ?? 'SplitUp'}</strong><small>SplitUp workspace</small></div><ChevronDown size={15} /></div>
+      <button type="button" className="team-heading" onClick={() => { setSettings(true); setConfirm(null); }} aria-label="Team settings" title="Team settings"><div><strong>{team?.name ?? 'SplitUp'}</strong><small>Team settings</small></div><Settings size={15} /></button>
       <nav className="channel-nav" aria-label="Channels"><div className="sidebar-label">Your workspace</div>{channels.map(channel => { const Icon = icons[channel]; return <Button key={channel} variant="ghost" className={`channel-button ${activeChannel === channel ? 'active' : ''}`} onClick={() => selectChannel(channel)} aria-current={activeChannel === channel ? 'page' : undefined}><Icon />{channel}</Button>; })}</nav>
-      <section className="members-section"><div className="sidebar-label"><span>Teammates — {team?.members.length ?? 0}</span><Users size={12} /></div>{team?.members.map((name, i) => <div key={name} className="member-line"><Avatar name={name} index={i} online /><span className="member-name">{name}</span>{name === 'You' && <small>that’s you</small>}</div>)}</section>
+      <section className="members-section"><div className="sidebar-label"><span>Teammates — {team?.members.length ?? 0}</span><Users size={12} /></div>{team?.members.map((name, i) => <div key={name} className="member-line"><Avatar name={name} index={i} online /><span className="member-name">{name}</span>{name === 'You' ? <small>that’s you</small> : <Button variant="ghost" size="icon" className="member-remove" aria-label={`Remove ${name}`} title={`Remove ${name}`} onClick={() => { setSettings(true); setConfirm({ member: name }); }}><X size={13} /></Button>}</div>)}</section>
       <div className="invite-section"><p>Good work starts with a team.</p><div className="invite-code"><span>{team?.code ?? '—'}</span><Button variant="ghost" size="icon" title="Copy invite code" aria-label="Copy invite code" onClick={copyCode}><Copy size={14} /></Button></div></div>
       <div className="user-strip"><Avatar name="You" index={0} online /><div><strong className="text-xs">You</strong><small>Ready to contribute</small></div></div>
     </aside>
@@ -93,6 +113,7 @@ function Index() {
       </div></div>
     </main>
     <Dialog open={modal} onOpenChange={setModal}><DialogContent className="team-dialog"><DialogHeader><DialogTitle>A fresh start, together.</DialogTitle><DialogDescription>Create your project team, or join one on this device.</DialogDescription></DialogHeader><div className="modal-tabs"><Button variant={mode === 'create' ? 'default' : 'secondary'} onClick={() => { setMode('create'); setError(''); }}>Create team</Button><Button variant={mode === 'join' ? 'default' : 'secondary'} onClick={() => { setMode('join'); setError(''); }}>Join team</Button></div><form onSubmit={submitTeam} key={mode}>{mode === 'create' ? <><label className="field">Project name<input name="name" required maxLength={80} placeholder="e.g. Psychology group project" /></label><label className="field">Teammates, separated by commas<input name="members" maxLength={250} placeholder="Aisha, Rohan, Meera" /></label></> : <label className="field">Invite code<input name="code" required placeholder="e.g. DBMS-482" /></label>}{error && <p className="form-error" role="alert">{error}</p>}<Button type="submit">{mode === 'create' ? 'Create team' : 'Join team'}<ArrowRight /></Button></form></DialogContent></Dialog>
+    <Dialog open={settings} onOpenChange={o => { setSettings(o); if (!o) setConfirm(null); }}><DialogContent className="team-dialog">{team && (confirm ? <><DialogHeader><DialogTitle>{typeof confirm === 'object' ? `Remove ${confirm.member}?` : confirm === 'leave' ? `Leave ${team.name}?` : `Delete ${team.name}?`}</DialogTitle><DialogDescription>{typeof confirm === 'object' ? `Their tasks will move to you and their rating will be cleared.` : confirm === 'leave' ? 'The team disappears from your list. You can rejoin later only if it still exists on this device.' : 'All tasks, messages and ratings in this team are deleted for good.'}</DialogDescription></DialogHeader><div className="modal-tabs"><Button variant="secondary" onClick={() => setConfirm(null)}>Cancel</Button><Button variant="destructive" onClick={confirmAction}>{typeof confirm === 'object' ? 'Remove' : confirm === 'leave' ? 'Leave team' : 'Delete team'}</Button></div></> : <><DialogHeader><DialogTitle>Team settings</DialogTitle><DialogDescription>Rename the team, manage teammates, or leave.</DialogDescription></DialogHeader><label className="field">Team name<input key={team.code} defaultValue={team.name} maxLength={80} onBlur={e => updateTeam(t => renameTeam(t, e.target.value))} /></label><div className="field">Teammates<div className="settings-members">{team.members.map((name, i) => <div key={name} className="member-line"><Avatar name={name} index={i} /><span className="member-name">{name}</span>{name === 'You' ? <small>that’s you</small> : <Button variant="ghost" size="sm" onClick={() => setConfirm({ member: name })}><UserMinus />Remove</Button>}</div>)}</div></div><form className="settings-add" onSubmit={addPerson}><input name="person" aria-label="New teammate name" maxLength={40} placeholder="Add a teammate" /><Button type="submit" variant="secondary"><UserPlus />Add</Button></form><div className="modal-tabs"><Button variant="secondary" onClick={() => setConfirm('leave')}><LogOut />Leave team</Button><Button variant="destructive" onClick={() => setConfirm('delete')}><Trash2 />Delete team</Button></div></>)}</DialogContent></Dialog>
     {notice && <div className="toast-note" role="status">{notice}</div>}
   </div>;
 }
@@ -123,7 +144,7 @@ function TaskBoard({ team, update }: { team: Team; update: (fn: (t: Team) => Tea
     const task = { id: crypto.randomUUID(), title, assignee: String(data.get('assignee')), due: String(data.get('due')), status: 0 };
     update(t => ({ ...t, tasks: [...t.tasks, task] })); form.reset();
   }
-  return <><PageHeading title="Big project. Small steps." subtitle="Clear tasks, clear owners. Let’s get this over the finish line." /><form className="task-form" onSubmit={addTask}><label className="field">Task title<input name="title" required maxLength={180} placeholder="What needs to get done?" /></label><label className="field">Assignee<select name="assignee">{team.members.map(n => <option key={n}>{n}</option>)}</select></label><label className="field">Due date<input type="date" name="due" required defaultValue={dateAfter(7)} /></label><Button type="submit" className="h-10"><Plus />Add task</Button></form><div className="task-board">{['To do', 'In progress', 'Done'].map((label, status) => { const tasks = team.tasks.filter(t => t.status === status); return <section key={label} className={`board-column status-${status}`}><h2><span className="status-dot" />{label}<span className="column-count">{tasks.length}</span></h2>{tasks.map(task => <article className="task-card" key={task.id}><h3>{task.title}</h3><div className="task-meta"><span className={`assignee-chip ${color(team.members.indexOf(task.assignee))}`}><Avatar name={task.assignee} index={team.members.indexOf(task.assignee)} />{task.assignee}</span><span className={daysUntil(task.due) < 0 && status < 2 ? 'tone-danger' : ''}>{daysUntil(task.due) < 0 && status < 2 ? 'Overdue · ' : ''}{shortDate(task.due)}</span></div>{status < 2 && <div className="task-action"><Button size="sm" variant="secondary" onClick={() => update(t => advanceTask(t, task.id))}>{status === 0 ? 'Start task' : 'Mark done'}{status === 0 ? <ArrowRight /> : <Check />}</Button></div>}</article>)}{tasks.length === 0 && <div className="empty-state">{status === 0 ? 'No tasks waiting. Add a task above to get started.' : status === 1 ? 'Ready when you are. Start a task from To do.' : 'Your wins will show up here. Finish an in-progress task.'}</div>}</section>; })}</div></>;
+  return <><PageHeading title="Big project. Small steps." subtitle="Clear tasks, clear owners. Let’s get this over the finish line." /><form className="task-form" onSubmit={addTask}><label className="field">Task title<input name="title" required maxLength={180} placeholder="What needs to get done?" /></label><label className="field">Assignee<select name="assignee">{team.members.map(n => <option key={n}>{n}</option>)}</select></label><label className="field">Due date<input type="date" name="due" required defaultValue={dateAfter(7)} /></label><Button type="submit" className="h-10"><Plus />Add task</Button></form><div className="task-board">{['To do', 'In progress', 'Done'].map((label, status) => { const tasks = team.tasks.filter(t => t.status === status); return <section key={label} className={`board-column status-${status}`}><h2><span className="status-dot" />{label}<span className="column-count">{tasks.length}</span></h2>{tasks.map(task => <article className="task-card" key={task.id}><div className="task-title-row"><h3>{task.title}</h3><Button variant="ghost" size="icon" className="task-delete" aria-label={`Delete ${task.title}`} title="Delete task" onClick={() => update(t => deleteTask(t, task.id))}><Trash2 size={14} /></Button></div><div className="task-meta"><span className={`assignee-chip ${color(team.members.indexOf(task.assignee))}`}><Avatar name={task.assignee} index={team.members.indexOf(task.assignee)} /><select className="assignee-select" aria-label={`Assignee for ${task.title}`} value={task.assignee} onChange={e => { const who = e.target.value; update(t => reassignTask(t, task.id, who)); }}>{team.members.map(n => <option key={n}>{n}</option>)}</select></span><span className={daysUntil(task.due) < 0 && status < 2 ? 'tone-danger' : ''}>{daysUntil(task.due) < 0 && status < 2 ? 'Overdue · ' : ''}{shortDate(task.due)}</span></div>{status < 2 && <div className="task-action"><Button size="sm" variant="secondary" onClick={() => update(t => advanceTask(t, task.id))}>{status === 0 ? 'Start task' : 'Mark done'}{status === 0 ? <ArrowRight /> : <Check />}</Button></div>}</article>)}{tasks.length === 0 && <div className="empty-state">{status === 0 ? 'No tasks waiting. Add a task above to get started.' : status === 1 ? 'Ready when you are. Start a task from To do.' : 'Your wins will show up here. Finish an in-progress task.'}</div>}</section>; })}</div></>;
 }
 function TeamChat({ team, update }: { team: Team; update: (fn: (t: Team) => Team) => void }) {
   const [draft, setDraft] = useState('');

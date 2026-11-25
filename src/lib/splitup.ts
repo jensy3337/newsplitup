@@ -85,4 +85,33 @@ function validState(value: unknown): value is AppState {
 }
 export function saveState(storage: Pick<Storage, 'setItem'>, state: AppState): boolean {
   try { storage.setItem(STORAGE_KEY, JSON.stringify(state)); return true; } catch { return false; }
+}export function renameTeam(team: Team, name: string): Team {
+  const clean = name.trim().slice(0, 80);
+  return clean ? { ...team, name: clean } : team;
+}
+export function addMember(team: Team, name: string): Team {
+  const clean = name.trim().slice(0, 40);
+  if (!clean || team.members.some(n => n.toLowerCase() === clean.toLowerCase())) return team;
+  return { ...team, members: [...team.members, clean], msgs: [...team.msgs, bot(`${clean} joined the team. Welcome!`)] };
+}
+/** Removes a teammate; their tasks move to You and their rating is cleared. You can't be removed. */
+export function removeMember(team: Team, name: string): Team {
+  if (name === 'You' || !team.members.includes(name)) return team;
+  const { [name]: _removed, ...fb } = team.fb;
+  const moved = team.tasks.filter(t => t.assignee === name).length;
+  return { ...team, members: team.members.filter(n => n !== name), tasks: team.tasks.map(t => t.assignee === name ? { ...t, assignee: 'You' } : t), fb, msgs: [...team.msgs, bot(`${name} was removed from the team.${moved ? ` ${moved} task${moved === 1 ? '' : 's'} moved to You.` : ''}`)] };
+}
+export function deleteTask(team: Team, id: string): Team {
+  return { ...team, tasks: team.tasks.filter(t => t.id !== id) };
+}
+export function reassignTask(team: Team, id: string, assignee: string): Team {
+  if (!team.members.includes(assignee)) return team;
+  return { ...team, tasks: team.tasks.map(t => t.id === id ? { ...t, assignee } : t) };
+}
+/** Deletes or leaves a team. If it was the last one, a blank team takes its place. */
+export function removeTeam(state: AppState, index: number, now = new Date()): AppState {
+  if (index < 0 || index >= state.teams.length) return state;
+  const teams = state.teams.filter((_, i) => i !== index);
+  if (teams.length === 0) return { teams: [createTeam('My Project', '', now)], activeTeamIndex: 0, activeChannel: 'team-chat' };
+  return { ...state, teams, activeTeamIndex: Math.min(state.activeTeamIndex > index ? state.activeTeamIndex - 1 : state.activeTeamIndex, teams.length - 1) };
 }

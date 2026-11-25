@@ -75,4 +75,34 @@ describe('SplitUp project rules', () => {
     expect(saveState({ setItem: (key, value) => { expect(key).toBe(STORAGE_KEY); saved = value; } }, state)).toBe(true);
     expect(loadState({ getItem: () => saved }, now)).toEqual(state);
   });
+});import { addMember, deleteTask, reassignTask, removeMember, removeTeam, renameTeam } from '@/lib/splitup';
+describe('Team management', () => {
+  it('removing a teammate moves their tasks to You and clears their rating', () => {
+    const team = { ...firstTeam(), fb: { Rohan: 4 } };
+    const next = removeMember(team, 'Rohan');
+    expect(next.members).not.toContain('Rohan');
+    expect(next.tasks.filter(t => t.assignee === 'You').length).toBe(3);
+    expect(next.fb).toEqual({});
+  });
+  it('never removes You', () => { const t = firstTeam(); expect(removeMember(t, 'You')).toBe(t); });
+  it('adds unique teammates only', () => {
+    expect(addMember(firstTeam(), 'Kiran').members).toContain('Kiran');
+    expect(addMember(firstTeam(), 'aisha').members.length).toBe(4);
+  });
+  it('deletes and reassigns tasks', () => {
+    expect(deleteTask(firstTeam(), '1').tasks.length).toBe(5);
+    expect(reassignTask(firstTeam(), '1', 'Meera').tasks[0]?.assignee).toBe('Meera');
+    expect(reassignTask(firstTeam(), '1', 'Nobody').tasks[0]?.assignee).toBe('Aisha');
+  });
+  it('renames teams but ignores blank names', () => {
+    expect(renameTeam(firstTeam(), ' New ').name).toBe('New');
+    expect(renameTeam(firstTeam(), '  ').name).toBe('DBMS Mini Project');
+  });
+  it('removes a team and keeps a valid selection; last team is replaced', () => {
+    const s = demoState(now); s.activeTeamIndex = 1;
+    expect(removeTeam(s, 0, now)).toMatchObject({ activeTeamIndex: 0 });
+    const one = removeTeam(s, 0, now);
+    const empty = removeTeam(one, 0, now);
+    expect(empty.teams.length).toBe(1); expect(empty.teams[0]?.name).toBe('My Project');
+  });
 });
