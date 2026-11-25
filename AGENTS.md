@@ -28,3 +28,8 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## App rules
+- Keep SplitUp domain operations in a browser-safe pure module and render its single-page channel experience at `/`; this separates fairness rules from presentation for testing.
+- Persist this device-only prototype through guarded localStorage after hydration; the brief excludes accounts and shared services.
+- Render user content as React text nodes, never HTML; this prevents user-entered markup from executing.
